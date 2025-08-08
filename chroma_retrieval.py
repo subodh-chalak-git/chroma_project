@@ -7,6 +7,8 @@ import openai
 import streamlit as st
 import chromadb
 from dotenv import load_dotenv
+from langsmith.wrappers import wrap_openai
+from langsmith import traceable
 
 # Load environment variables
 load_dotenv()
@@ -50,7 +52,7 @@ if not OPENAI_API_KEY:
 @st.cache_resource(show_spinner=False)
 def initiate_data(api_key):
     print("✅ Initializing GPT and ChromaDB clients...")
-    gpt_client = openai.OpenAI(api_key=api_key)
+    gpt_client = wrap_openai(openai.OpenAI(api_key=api_key))
     chroma_client = chromadb.CloudClient(
         api_key=os.environ.get('CHROMA_API_KEY'),
         tenant=os.environ.get("CHROMA_TENANT"),
@@ -58,6 +60,18 @@ def initiate_data(api_key):
     )
     collection = chroma_client.get_collection(name="budget_speech")
     return collection, gpt_client
+
+
+@traceable(name="Query with Context + GPT")
+def ask_query_with_trace(messages, gpt_client):
+    print("Calling langsmith traceable...")
+    # OpenAI call
+    response = gpt_client.chat.completions.create(
+        model="gpt-4o",
+        messages=messages
+    )
+    return response.choices[0].message.content
+
 
 try:
     collection, gpt_client = initiate_data(OPENAI_API_KEY)
@@ -88,7 +102,7 @@ if submitted and query and collection and gpt_client:
     try:
         with st.spinner("🤔 Thinking..."):
             # Fetch vector context from ChromaDB
-            context = collection.query(query_texts=[query], n_results=10)['documents']
+            context = collection.query(query_texts=[query], n_results=5)['documents']
             combined_context = "\n\n".join([doc for doc_list in context for doc in doc_list])
             st.session_state.last_context = combined_context  # Save for debugging or auditing
 
@@ -98,7 +112,7 @@ if submitted and query and collection and gpt_client:
             # Add a fresh system message each time with current context
             system_prompt = (
                 "You are a helpful assistant who answers queries about Indian Government budget speeches."
-                "While answering the question, use the bullet points, empjis, symbols to make it look attractive for the end user to read."
+                "While answering the question, use the bullet points, emojis, symbols to make it look attractive for the end user to read."
                 "Use the following context to answer. If the question is unrelated, say you don't know.\n\n"
                 f"Context:\n{combined_context}"
             )
@@ -110,13 +124,8 @@ if submitted and query and collection and gpt_client:
             # Add current user query
             messages.append({"role": "user", "content": query})
 
-            # OpenAI call
-            response = gpt_client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages
-            )
-
-            response_text = response.choices[0].message.content
+            # call ask_query_wih_trace function to run the query
+            response_text = ask_query_with_trace(messages=messages, gpt_client=gpt_client)
 
             # Save conversation turn
             st.session_state.messages.append({"role": "user", "content": query})
@@ -125,10 +134,6 @@ if submitted and query and collection and gpt_client:
     except:
         st.markdown("### 🤖 Error")
         st.markdown("Something went wrong. Please try again later.")
-else:
-    st.markdown("### 🤖 Error")
-    st.markdown("Something went wrong. Please try again later.")
-    st.stop()
 
 # --- Display assistant response even after rerun ---
 if st.session_state.last_response:
