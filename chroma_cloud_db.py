@@ -1,6 +1,9 @@
+import os
 import uuid
 from pypdf import PdfReader
 import chromadb
+from dotenv import load_dotenv
+load_dotenv()
 
 # Step 1: Read PDF file using PyPDF
 pdf_path = "./budget_speech.pdf"
@@ -19,9 +22,9 @@ for i, page in enumerate(reader.pages):
 # client = chromadb.PersistentClient(path="./chroma_data")
 
 client = chromadb.CloudClient(
-  api_key='ck-9Ew8Ay6AkfGpHifMwYLN5Z2CCqJWjk8iNaPyDtzFQPw4',
-  tenant='1e2f47df-e9ba-474a-ae4c-4f9631641ab4',
-  database='dev_db'
+    api_key=os.environ.get('CHROMA_API_KEY'),
+    tenant=os.environ.get("CHROMA_TENANT"),
+    database=os.environ.get("CHROMA_DB")
 )
 
 # Step 3: Create or get the collection
